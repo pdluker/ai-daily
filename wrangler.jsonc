@@ -1,0 +1,36 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "ai-daily",
+	"main": "ai-worker.js",
+	"compatibility_date": "2026-10-01",
+	// Declared explicitly, same reasons as stl-dispatcher's wrangler.jsonc:
+	// an absent key silently defaults to true on every deploy.
+	"workers_dev": false,
+	"preview_urls": false,
+	"routes": [
+		{ "pattern": "ai.stluker.com", "zone_name": "stluker.com", "custom_domain": true }
+	],
+	// Static assets = cover.jpg + favicon.svg only. run_worker_first: true so
+	// no static file can ever shadow a KV-backed route (Jul 13-14 status
+	// incident); the Worker falls through to ASSETS for anything it doesn't own.
+	"assets": {
+		"directory": "./public",
+		"binding": "ASSETS",
+		"run_worker_first": true
+	},
+	// Shared with stl-dispatcher and pod: everything for this site lives under
+	// the "ai:" key prefix / "ai/" object prefix. Same IDs as
+	// stl-dispatcher/wrangler.jsonc -- nothing new to create.
+	"kv_namespaces": [
+		{ "binding": "PODCAST_KV", "id": "d0d7565915314f7d85ced9caf04d21bf", "remote": true }
+	],
+	"r2_buckets": [
+		{ "binding": "POD_BUCKET", "bucket_name": "pod-audio" }
+	],
+	"observability": {
+		"enabled": true,
+		"head_sampling_rate": 1
+	}
+	// No "triggers" block on purpose. stl-dispatcher is the only scheduler
+	// for this pipeline (stl-bucket double-cron lesson, Jul 22).
+}
