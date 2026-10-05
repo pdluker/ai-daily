@@ -204,10 +204,15 @@ ${ed.stories.map(storyHtml).join('\n')}
 function buildPodcastFeed(episodes) {
   const items = episodes.map((ep) => {
     const audioUrl = `${SITE.url}/audio/${ep.id}.mp3`;
+    // The spoken closeout promises "links are in the show notes" -- this is
+    // where that promise is kept: the episode page lists every story + source.
+    const pageUrl = `${SITE.url}/episode/${ep.id}`;
+    const notes = `${ep.blurb || SHOW.subtitle} Every story and source link: ${pageUrl}`;
     return `    <item>
       <title>${xmlEscape(ep.title)}</title>
-      <description>${xmlEscape(ep.blurb || SHOW.subtitle)}</description>
-      <itunes:summary>${xmlEscape(ep.blurb || SHOW.subtitle)}</itunes:summary>
+      <description>${xmlEscape(notes)}</description>
+      <content:encoded><![CDATA[<p>${esc(ep.blurb || SHOW.subtitle)}</p><p><a href="${pageUrl}">Every story and source link for this episode</a></p>]]></content:encoded>
+      <itunes:summary>${xmlEscape(notes)}</itunes:summary>
       <pubDate>${xmlEscape(ep.pubDate)}</pubDate>
       <guid isPermaLink="false">stluker-ai-recap-${xmlEscape(ep.id)}</guid>
       <link>${SITE.url}/episode/${xmlEscape(ep.id)}</link>
@@ -364,9 +369,16 @@ ${manifest.length ? manifest.map((ep) => episodeCard(ep)).join('\n') : '<p class
 async function renderEpisode(env, id) {
   const ep = await readJson(env.PODCAST_KV, `ai:pod:episode:${id}`, null);
   if (!ep) return notFound();
+  // Show notes: every story from the editions this episode covered, with sources.
+  const eds = (await Promise.all((ep.covers || []).map((d) => readJson(env.PODCAST_KV, `ai:day:${d}`, null)))).filter(Boolean);
+  const notes = eds.map((ed) => `
+<h2 style="font-size:1rem;margin:1.5rem 0 .5rem;color:var(--muted)"><a href="/day/${esc(ed.day)}" style="text-decoration:none">${esc(longDate(ed.day))}</a></h2>
+<ul class="list">${ed.stories.map((s) => `<li style="display:block"><b>${esc(s.headline)}</b><div class="links">${(s.links || []).map((l) =>
+    `<a href="${esc(l.url)}" rel="noopener">${esc(l.source || hostOf(l.url))} &rarr;</a>`).join('')}</div></li>`).join('')}</ul>`).join('');
   return html(page({
     title: `${ep.title} · ${SHOW.title}`, description: ep.blurb || SHOW.subtitle, active: 'podcast',
-    body: `<p class="kicker"><a href="/podcast" style="text-decoration:none">${esc(SHOW.title)}</a></p>${episodeCard(ep, { open: true, script: ep.script })}`,
+    body: `<p class="kicker"><a href="/podcast" style="text-decoration:none">${esc(SHOW.title)}</a></p>${episodeCard(ep, { open: false, script: ep.script })}
+${notes ? `<p class="kicker" style="margin-top:2rem">Show notes &middot; every story and source</p>${notes}` : ''}`,
   }));
 }
 
