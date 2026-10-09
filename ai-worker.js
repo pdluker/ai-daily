@@ -221,10 +221,12 @@ function buildPodcastFeed(episodes) {
       ${ep.episodeNumber ? `<itunes:episode>${ep.episodeNumber}</itunes:episode>` : ''}
       <itunes:episodeType>full</itunes:episodeType>
       <itunes:explicit>false</itunes:explicit>
+      <itunes:image href="${xmlEscape(SHOW.imageUrl)}"/>
+      <podcast:transcript url="${SITE.url}/transcript/${xmlEscape(ep.id)}.txt" type="text/plain"/>
     </item>`;
   }).join('\n');
   return `<?xml version="1.0" encoding="UTF-8"?>
-<rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:atom="http://www.w3.org/2005/Atom">
+<rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:podcast="https://podcastindex.org/namespace/1.0">
   <channel>
     <title>${xmlEscape(SHOW.title)}</title>
     <link>${SITE.url}/podcast</link>
@@ -239,6 +241,8 @@ function buildPodcastFeed(episodes) {
     <itunes:image href="${xmlEscape(SHOW.imageUrl)}"/>
     <itunes:owner><itunes:name>${xmlEscape(SHOW.author)}</itunes:name><itunes:email>${xmlEscape(SHOW.email)}</itunes:email></itunes:owner>
     <itunes:category text="${SHOW.category}"/>
+    <podcast:guid>e9335dfe-01c4-5a9d-9714-0933ae5952de</podcast:guid>
+    <podcast:locked owner="${xmlEscape(SHOW.email)}">yes</podcast:locked>
 ${items}
   </channel>
 </rss>`;
