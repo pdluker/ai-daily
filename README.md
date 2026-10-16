@@ -106,6 +106,44 @@ curl.exe -H "Range: bytes=0-1023" -I https://ai.stluker.com/audio/<date>.mp3    
 - Validate the feed at podba.se/validate, then subscribe by URL in your
   podcast app.
 
+## Email newsletter (added 2026-10-10)
+
+Each daily edition can also go out as an email, laid out like a wire report:
+masthead and dateline, the lead, an index of headlines, then numbered stories
+with "Why it matters" and their sources. Preview it at `/newsletter/preview`.
+
+- **Signup:** there's a card under every edition, plus the `/newsletter` page.
+  Signups are double opt-in: `POST /subscribe` sends a confirmation email,
+  and the confirm link opens a page with a button. Only that button's POST
+  activates the subscription, so link-scanning mail filters can't confirm one.
+- **Storage:** subscribers live in `PODCAST_KV` under `ai:news:sub:*`, with
+  the address in key metadata, so one `list` call returns the whole list.
+- **Sending:** `POST /newsletter/send` with `Authorization: Bearer
+  <NEWSLETTER_SEND_TOKEN>` mails the newest edition through Resend's batch
+  API, 100 per call. Each edition goes out once (`ai:news:sent:<day>`).
+  Use `?dry=1` to count recipients, `?test=you@x.com` to send a single copy,
+  and `?force=1` to send again.
+- **Unsubscribe:** every email has a signed one-click link plus
+  `List-Unsubscribe` / `List-Unsubscribe-Post` headers (Gmail and Yahoo
+  require these for bulk mail).
+- **Abuse guards:** a honeypot field, a 1-hour per-address cooldown, and a cap
+  of 300 confirmation emails per day, all to protect the shared Resend quota.
+- **Resend plan limits:** the free tier allows 100 emails/day and 3,000 per
+  month, shared with alerting and Innovation Daily. Move to a paid tier
+  before the list grows past about 80 people.
+
+Setup, from `C:\Users\pdluk\ai-daily`:
+
+```powershell
+npx wrangler secret put RESEND_API_KEY          # same Resend account; stluker.com is verified
+npx wrangler secret put NEWSLETTER_KEY          # any long random string (signs unsubscribe links)
+npx wrangler secret put NEWSLETTER_SEND_TOKEN   # any long random string; also set it in stl-dispatcher
+npx wrangler deploy
+```
+
+The daily send is triggered by stl-dispatcher, right after `aiIngest`
+succeeds, because this Worker deliberately has no cron of its own.
+
 ## Monitoring
 
 Monitoring was added at the same time as the tasks:
