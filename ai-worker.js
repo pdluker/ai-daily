@@ -2,7 +2,7 @@
  * ai-worker.js  --  the `ai-daily` Worker behind ai.stluker.com
  *
  * Front end. stl-dispatcher writes the content (aiIngest daily at 11:45 UTC,
- * aiPodcast Mon/Thu at 11:50 UTC); this Worker renders it from PODCAST_KV /
+ * aiPodcast + newsletter roundup Mon/Wed/Fri at 11:50 UTC); this Worker renders it from PODCAST_KV /
  * POD_BUCKET at request time, same pattern as pod/space/earth. The one thing
  * it writes is the newsletter subscriber list (ai:news:*), and it mails each
  * edition when stl-dispatcher calls POST /newsletter/send.
