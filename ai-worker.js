@@ -17,11 +17,11 @@
  *   GET /audio/:id.mp3       episode MP3 from R2, Range-aware (podcast apps need 206)
  *   GET /transcript/:id.txt  plain-text script
  *   GET /newsletter          newsletter pitch + signup + sample issue
- *   GET /newsletter/preview  the latest edition rendered as the email
+ *   GET /newsletter/preview  the latest roundup rendered as the email
  *   POST /subscribe          email -> pending + confirmation mail (double opt-in)
  *   GET|POST /confirm        confirm page (GET) / activate subscription (POST)
  *   GET|POST /unsubscribe    confirm page (GET) / remove (POST, also RFC 8058 one-click)
- *   POST /newsletter/send    Bearer NEWSLETTER_SEND_TOKEN; mails the latest edition once
+ *   POST /newsletter/send    Bearer NEWSLETTER_SEND_TOKEN; mails the M/W/F roundup once
  *
  * KV keys (all written by stl-dispatcher):
  *   ai:index                [{day, headline, count}] newest first
@@ -48,9 +48,9 @@ const SITE = {
 
 const SHOW = {
   title: 'AI Daily Recap',
-  subtitle: 'Five minutes, twice a week: everything that mattered in AI since last time.',
+  subtitle: 'Five minutes, every Monday, Wednesday and Friday: everything that mattered in AI since last time.',
   description:
-    'Every Monday and Thursday, Paul Luker walks through the AI news that actually mattered ' +
+    'Every Monday, Wednesday and Friday, Paul Luker walks through the AI news that actually mattered ' +
     'since the last episode: new models, launches, research, money, and policy. About five ' +
     'minutes. Built from the daily editions at ai.stluker.com; scripted with AI and read in ' +
     "Paul's own cloned voice. Part of the stluker.com network.",
@@ -192,7 +192,7 @@ function signupForm() {
     </div>
     <label class="hp" aria-hidden="true">Leave blank <input type="text" name="website" tabindex="-1" autocomplete="off"></label>
     <p class="msg" role="status" aria-live="polite"></p>
-    <p class="fine">Free. One email a day. We send one message to confirm; unsubscribe in one click.</p>
+    <p class="fine">Free. One email every Monday, Wednesday and Friday. We send one message to confirm; unsubscribe in one click.</p>
   </form>`;
 }
 
@@ -200,8 +200,8 @@ function signupCard({ wide = false } = {}) {
   return `<section class="signup${wide ? ' wide' : ''}" aria-label="Subscribe to the newsletter">
   ${wide ? '' : `<div>
     <p class="kicker">The morning briefing</p>
-    <h2 class="serif">Get this edition in your inbox, every morning</h2>
-    <p>Every story, why it matters, and the source links. In your inbox around 6:45&nbsp;a.m. Central. <a href="/newsletter">See a sample</a>.</p>
+    <h2 class="serif">Get the roundup in your inbox, Monday, Wednesday and Friday</h2>
+    <p>Every story since the last one, why it matters, and the source links. In your inbox around 6:50&nbsp;a.m. Central. <a href="/newsletter">See a sample</a>.</p>
   </div>`}
   ${signupForm()}
 </section>`;
@@ -281,7 +281,7 @@ const NEWS = {
   replyTo: SHOW.email,
   confirmTtl: 3 * 86400,
   cooldown: 3600,
-  dailyConfirmCap: 300, // protects the shared Resend quota from signup spam
+  dailyConfirmCap: 20,  // protects the shared Resend quota from signup spam (was 300 until 2026-10-16)
   batchSize: 100,       // Resend /emails/batch maximum
 };
 const E = {
@@ -308,8 +308,12 @@ ${body}
 </body></html>`;
 }
 
-function renderIssue(ed, { issueNo = null } = {}) {
-  const webUrl = `${SITE.url}/day/${ed.day}`;
+// CHANGED 2026-10-16: `ed` is now usually a Mon/Wed/Fri roundup from
+// buildRoundup() (stories merged across several editions, each tagged with
+// its `day`). `episode`, when given, adds a "Listen to today's episode" block.
+function renderIssue(ed, { issueNo = null, episode = null } = {}) {
+  const webUrl = episode ? `${SITE.url}/episode/${ed.day}` : `${SITE.url}/day/${ed.day}`;
+  const episodeUrl = `${SITE.url}/episode/${ed.day}`;
   const n = ed.stories.length;
   const top = ed.stories[0];
   const subject = `${top?.headline || 'Today in AI'}${n > 1 ? ` (+${n - 1} more)` : ''}`;
@@ -326,7 +330,7 @@ function renderIssue(ed, { issueNo = null } = {}) {
       `<a href="${esc(l.url)}" style="color:${E.accent};text-decoration:none">${esc(l.source || hostOf(l.url))}</a>` +
       (l.discussion ? ` &middot; <a href="${esc(l.discussion)}" style="color:${E.accent};text-decoration:none">HN discussion</a>` : '')).join(' &middot; ');
     return `<tr><td style="padding:${i === 0 ? '8px' : '26px'} 32px 0">
-    <div style="font-family:${E.sans};font-size:11px;line-height:16px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:${E.muted}">${i === 0 ? `<span style="color:${E.accent}">Top story</span> &middot; ` : `${String(i + 1).padStart(2, '0')} &middot; `}${esc(s.category)}</div>
+    <div style="font-family:${E.sans};font-size:11px;line-height:16px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:${E.muted}">${i === 0 ? `<span style="color:${E.accent}">Top story</span> &middot; ` : `${String(i + 1).padStart(2, '0')} &middot; `}${esc(s.category)}${s.day ? ` &middot; ${esc(shortDate(s.day))}` : ''}</div>
     <h2 style="margin:6px 0 10px;font-family:${E.serif};font-size:${i === 0 ? 26 : 21}px;line-height:1.25;font-weight:700;color:${E.ink}">${esc(s.headline)}</h2>
     <p style="margin:0 0 12px;font-family:${E.sans};font-size:16px;line-height:26px;color:${E.ink}">${esc(s.summary)}</p>
     ${s.why ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td style="border-left:3px solid ${E.accent};background:${E.soft};padding:10px 14px;font-family:${E.sans};font-size:15px;line-height:23px;color:${E.ink}"><b>Why it matters:</b> ${esc(s.why)}</td></tr></table>` : ''}
@@ -353,9 +357,16 @@ function renderIssue(ed, { issueNo = null } = {}) {
   ${label('The lead')}
   <p style="margin:8px 0 0;font-family:${E.serif};font-size:20px;line-height:31px;color:${E.ink}">${esc(ed.lede)}</p>
 </td></tr>
+${episode ? `<tr><td style="padding:22px 32px 0">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td style="background:${E.soft};border-left:3px solid ${E.accent};padding:14px 18px;font-family:${E.sans};font-size:15px;line-height:23px;color:${E.ink}">
+    ${label('Listen to today&rsquo;s episode')}
+    <div style="margin-top:6px"><b>${esc(episode.title || SHOW.title)}</b>${episode.durationSeconds ? ` <span style="color:${E.muted}">&middot; ${hhmmss(episode.durationSeconds)}</span>` : ''}</div>
+    <div style="margin-top:6px"><a href="${episodeUrl}" style="color:${E.accent};text-decoration:none;font-weight:700">Listen to today&rsquo;s episode &rarr;</a></div>
+  </td></tr></table>
+</td></tr>` : ''}
 <tr><td style="padding:24px 32px 20px">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:${E.bg}"><tr><td style="padding:14px 18px">
-    ${label('In this edition')}
+    ${label('In this roundup')}
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:6px">${index}</table>
   </td></tr></table>
 </td></tr>
@@ -363,7 +374,7 @@ ${rule}
 ${stories}
 <tr><td style="padding:30px 32px 0">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr><td style="border:1px solid ${E.line};padding:14px 18px;font-family:${E.sans};font-size:14px;line-height:22px;color:${E.ink}">
-    <b>Prefer to listen?</b> ${esc(SHOW.title)} covers all of this in about five minutes every Monday and Thursday. <a href="${SITE.url}/podcast" style="color:${E.accent};text-decoration:none">Listen or subscribe &rarr;</a>
+    <b>Prefer to listen?</b> ${esc(SHOW.title)} covers all of this in about five minutes every Monday, Wednesday and Friday. <a href="${SITE.url}/podcast" style="color:${E.accent};text-decoration:none">Listen or subscribe &rarr;</a>
   </td></tr></table>
 </td></tr>
 <tr><td style="padding:28px 32px 30px;font-family:${E.sans};font-size:12px;line-height:19px;color:${E.muted}">
@@ -381,12 +392,13 @@ ${stories}
     'THE LEAD',
     ed.lede,
     '',
-    'IN THIS EDITION',
+    ...(episode ? ["LISTEN TO TODAY'S EPISODE", `${episode.title || SHOW.title}: ${episodeUrl}`, ''] : []),
+    'IN THIS ROUNDUP',
     ...ed.stories.map((s, i) => `${String(i + 1).padStart(2, '0')}  ${s.headline}`),
     '',
     ...ed.stories.flatMap((s, i) => [
       '------------------------------------------------------------',
-      `${i === 0 ? 'TOP STORY' : String(i + 1).padStart(2, '0')} | ${String(s.category || '').toUpperCase()}`,
+      `${i === 0 ? 'TOP STORY' : String(i + 1).padStart(2, '0')} | ${String(s.category || '').toUpperCase()}${s.day ? ` | ${shortDate(s.day)}` : ''}`,
       s.headline,
       '',
       s.summary,
@@ -395,7 +407,7 @@ ${stories}
       '',
     ]),
     '------------------------------------------------------------',
-    `Prefer to listen? ${SHOW.title}, Mondays and Thursdays: ${SITE.url}/podcast`,
+    `Prefer to listen? ${SHOW.title}, Mondays, Wednesdays and Fridays: ${SITE.url}/podcast`,
     '',
     `${SITE.name} is assembled from public AI news sources and written up by Claude, an AI model. Check the sources before quoting.`,
     `Unsubscribe: ${UNSUB}`,
@@ -409,7 +421,7 @@ function renderConfirmEmail(confirmUrl) {
 <tr><td style="padding:28px 32px 0" align="center"><div style="font-family:${E.serif};font-size:30px;line-height:36px;font-weight:700;color:${E.ink}">${esc(SITE.name)}</div></td></tr>
 <tr><td style="padding:14px 32px 0"><div style="border-top:3px double ${E.ink};height:0;line-height:0">&nbsp;</div></td></tr>
 <tr><td style="padding:24px 32px 8px;font-family:${E.sans};font-size:16px;line-height:26px;color:${E.ink}">
-  <p style="margin:0 0 14px">One click and you're on the list for the ${esc(SITE.name)} morning briefing: every story, why it matters, and the source links, around 6:45 a.m. Central.</p>
+  <p style="margin:0 0 14px">One click and you're on the list for the ${esc(SITE.name)} morning briefing: every story, why it matters, and the source links, every Monday, Wednesday and Friday around 6:50 a.m. Central.</p>
   <p style="margin:22px 0" align="center"><a href="${confirmUrl}" style="display:inline-block;background:${E.accent};color:#ffffff;text-decoration:none;font-weight:700;border-radius:999px;padding:12px 26px">Confirm my subscription</a></p>
   <p style="margin:0;font-size:13px;line-height:20px;color:${E.muted}">The link works for three days. If you didn't ask for this, ignore this email and nothing will happen.</p>
 </td></tr>
@@ -540,7 +552,7 @@ async function handleConfirm(request, env, url) {
   const email = pending.email;
   await kv.put(await subKey(email), JSON.stringify({ email, since: new Date().toISOString() }), { metadata: { e: email } });
   await kv.delete(`ai:news:pending:${token}`);
-  return noticePage('You’re on the list', `<p>Your first briefing arrives tomorrow morning around 6:45&nbsp;a.m. Central. Every email has a one-click unsubscribe link at the bottom.</p>
+  return noticePage('You’re on the list', `<p>Your first briefing arrives the next Monday, Wednesday or Friday morning, around 6:50&nbsp;a.m. Central. Every email has a one-click unsubscribe link at the bottom.</p>
 <p><a class="btn" href="/">Read today&rsquo;s edition now</a></p>`);
 }
 
@@ -569,8 +581,72 @@ async function listSubscribers(kv) {
   return out.sort();
 }
 
+// ── Mon/Wed/Fri roundup (ADDED 2026-10-16) ─────────────────────────────────
+// Days: the episode's `covers` if ai:pod:episode:<day> exists; otherwise every
+// ai:index day after the most recent ai:news:sent:<d> (d < day), up to and
+// including <day>, capped at ROUNDUP_MAX_DAYS. Stories are merged, deduped by
+// first link URL (fallback: normalized headline), sorted by importance desc
+// then newest day, capped at ROUNDUP_MAX_STORIES.
+const ROUNDUP_MAX_DAYS = 5;
+const ROUNDUP_MAX_STORIES = 12;
+
+async function buildRoundup(kv, day, index) {
+  const episode = await readJson(kv, `ai:pod:episode:${day}`, null);
+  let days;
+  if (episode && Array.isArray(episode.covers) && episode.covers.length) {
+    days = episode.covers.filter((d) => DAY_RE.test(d) && d <= day);
+  } else {
+    let lastSent = null;
+    let cursor;
+    do {
+      const page = await kv.list({ prefix: 'ai:news:sent:', cursor });
+      for (const k of page.keys) {
+        const d = k.name.slice('ai:news:sent:'.length);
+        if (DAY_RE.test(d) && d < day && (!lastSent || d > lastSent)) lastSent = d;
+      }
+      cursor = page.list_complete ? null : page.cursor;
+    } while (cursor);
+    days = index.map((e) => e.day).filter((d) => d <= day && (!lastSent || d > lastSent));
+  }
+  days = [...new Set(days)].sort().slice(-ROUNDUP_MAX_DAYS);
+  if (!days.includes(day) && index.some((e) => e.day === day)) days = [...days.slice(-(ROUNDUP_MAX_DAYS - 1)), day];
+
+  const eds = (await Promise.all(days.map((d) => readJson(kv, `ai:day:${d}`, null)))).filter((e) => e?.stories?.length);
+  if (!eds.length) return null;
+
+  const normHeadline = (h) => String(h || '').toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim();
+  const all = eds.flatMap((ed) => ed.stories.map((s) => ({ ...s, day: ed.day })))
+    .sort((a, b) => (Number(b.importance) || 0) - (Number(a.importance) || 0) || (a.day < b.day ? 1 : a.day > b.day ? -1 : 0));
+  const seen = new Set();
+  const stories = [];
+  for (const s of all) {
+    const key = s.links?.[0]?.url ? `u:${s.links[0].url}` : `h:${normHeadline(s.headline)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    stories.push(s);
+    if (stories.length >= ROUNDUP_MAX_STORIES) break;
+  }
+  const newest = eds.reduce((a, b) => (a.day > b.day ? a : b));
+  return {
+    ed: { day, lede: episode?.newsletterLede || newest.lede, stories, days: eds.map((e) => e.day) },
+    episode,
+  };
+}
+
+// Issue number = how many roundups went out before <day>, plus one.
+async function roundupIssueNo(kv, day) {
+  let n = 0;
+  let cursor;
+  do {
+    const page = await kv.list({ prefix: 'ai:news:sent:', cursor });
+    n += page.keys.filter((k) => k.name.slice('ai:news:sent:'.length) < day).length;
+    cursor = page.list_complete ? null : page.cursor;
+  } while (cursor);
+  return n + 1;
+}
+
 // POST /newsletter/send  (Bearer NEWSLETTER_SEND_TOKEN)
-//   ?day=YYYY-MM-DD   edition to send (default: newest)
+//   ?day=YYYY-MM-DD   roundup to send (default: newest edition day)
 //   ?test=addr        send only to addr; doesn't mark the edition sent
 //   ?dry=1            count recipients, send nothing
 //   ?force=1          send even if this edition was already mailed
@@ -586,8 +662,9 @@ async function handleSend(request, env, url) {
   const index = await readJson(kv, 'ai:index', []);
   const day = url.searchParams.get('day') || index[0]?.day;
   if (!day || !DAY_RE.test(day)) return json({ error: 'no edition' }, 404);
-  const ed = await readJson(kv, `ai:day:${day}`, null);
-  if (!ed?.stories?.length) return json({ error: `no edition for ${day}` }, 404);
+  const roundup = await buildRoundup(kv, day, index);
+  if (!roundup?.ed?.stories?.length) return json({ error: `no editions to send for ${day}` }, 404);
+  const { ed, episode } = roundup;
 
   const test = normalizeEmail(url.searchParams.get('test'));
   const dry = url.searchParams.get('dry') === '1';
@@ -599,11 +676,10 @@ async function handleSend(request, env, url) {
   }
 
   const recipients = test ? [test] : await listSubscribers(kv);
-  if (dry) return json({ dry: true, day, recipients: recipients.length });
+  if (dry) return json({ dry: true, day, recipients: recipients.length, days: ed.days, stories: ed.stories.length, episode: !!episode });
   if (!recipients.length) return json({ day, sent: 0, note: 'no subscribers' });
 
-  const pos = index.findIndex((e) => e.day === day);
-  const issue = renderIssue(ed, { issueNo: pos >= 0 ? index.length - pos : null });
+  const issue = renderIssue(ed, { issueNo: await roundupIssueNo(kv, day), episode });
   let sent = 0, failed = 0;
   for (let i = 0; i < recipients.length; i += NEWS.batchSize) {
     const chunk = recipients.slice(i, i + NEWS.batchSize);
@@ -629,30 +705,30 @@ async function handleSend(request, env, url) {
 async function renderNewsletter(env) {
   const index = await readJson(env.PODCAST_KV, 'ai:index', []);
   const body = `
-<p class="kicker">Newsletter &middot; Every morning</p>
+<p class="kicker">Newsletter &middot; Monday, Wednesday, Friday</p>
 <h1 class="serif">The ${esc(SITE.name)} morning briefing</h1>
-<p class="lede">One email, around 6:45&nbsp;a.m. Central: what happened in AI, why it matters, and a link to every source. Written like a wire report, not a hype thread.</p>
+<p class="lede">One email every Monday, Wednesday and Friday, around 6:50&nbsp;a.m. Central: what happened in AI since the last one, why it matters, and a link to every source. Written like a wire report, not a hype thread.</p>
 ${signupCard({ wide: true })}
 <div class="perks">
   <div><h3>Reported, not hyped</h3><p>A short lead, then each story in plain language: what happened, and why it matters.</p></div>
   <div><h3>Every claim sourced</h3><p>Each story links to the original reporting so you can check it yourself.</p></div>
   <div><h3>Two-minute scan</h3><p>An index up top shows the whole edition at a glance. Read what you need, skip the rest.</p></div>
 </div>
-${index.length ? `<p class="kicker">Sample &middot; the latest edition, as it arrives</p>
+${index.length ? `<p class="kicker">Sample &middot; the latest roundup, as it arrives</p>
 <div class="sample"><iframe src="/newsletter/preview" title="Sample ${esc(SITE.name)} email" loading="lazy"></iframe></div>
 <p class="why" style="margin-top:.8rem"><a href="/newsletter/preview">Open the sample in its own tab &rarr;</a></p>` : ''}
 <p class="why" style="margin-top:2rem">Editions are assembled automatically from public AI news sources and written up by Claude, an AI model. Your address is used only to send this newsletter, and every email has a one-click unsubscribe.</p>`;
-  return html(page({ title: `Newsletter · ${SITE.name}`, description: 'The AI Daily morning briefing: every story, why it matters, and the sources, in your inbox each morning.', active: 'newsletter', body }));
+  return html(page({ title: `Newsletter · ${SITE.name}`, description: 'The AI Daily morning briefing: every story, why it matters, and the sources, in your inbox every Monday, Wednesday and Friday.', active: 'newsletter', body }));
 }
 
 async function renderPreview(env, url) {
   const index = await readJson(env.PODCAST_KV, 'ai:index', []);
   const q = url.searchParams.get('day');
   const day = q && DAY_RE.test(q) ? q : index[0]?.day;
-  const ed = day ? await readJson(env.PODCAST_KV, `ai:day:${day}`, null) : null;
-  if (!ed?.stories?.length) return notFound();
-  const pos = index.findIndex((e) => e.day === day);
-  const { html: body } = renderIssue(ed, { issueNo: pos >= 0 ? index.length - pos : null });
+  // Same roundup handleSend() would mail for this day.
+  const roundup = day ? await buildRoundup(env.PODCAST_KV, day, index) : null;
+  if (!roundup?.ed?.stories?.length) return notFound();
+  const { html: body } = renderIssue(roundup.ed, { issueNo: await roundupIssueNo(env.PODCAST_KV, day), episode: roundup.episode });
   return html(body.replaceAll(UNSUB, '/newsletter'));
 }
 
@@ -816,12 +892,12 @@ function episodeCard(ep, { open = false, script = null } = {}) {
 async function renderPodcast(env) {
   const manifest = await readJson(env.PODCAST_KV, 'ai:pod:manifest', []);
   const body = `
-<p class="kicker">Podcast &middot; Mondays and Thursdays</p>
+<p class="kicker">Podcast &middot; Mondays, Wednesdays and Fridays</p>
 <h1>${esc(SHOW.title)}</h1>
 <p class="lede">${esc(SHOW.subtitle)}</p>
 <p>Subscribe in any podcast app with this feed URL. Apple Podcasts: Library &rarr; &hellip; &rarr; Follow a Show by URL. Overcast and Pocket Casts take it directly.</p>
 <code class="feed">${SITE.url}/feed.xml</code>
-${manifest.length ? manifest.map((ep) => episodeCard(ep)).join('\n') : '<p class="empty">The first episode drops on the next Monday or Thursday morning.</p>'}
+${manifest.length ? manifest.map((ep) => episodeCard(ep)).join('\n') : '<p class="empty">The first episode drops on the next Monday, Wednesday or Friday morning.</p>'}
 <p class="why" style="margin-top:2rem">Scripts are written by Claude from the daily editions on this site, then read by an AI clone of Paul&rsquo;s voice. Every fact traces to a linked source on the matching edition page.</p>`;
   return html(page({ title: `${SHOW.title} · ${SITE.name}`, description: SHOW.subtitle, active: 'podcast', body }));
 }
