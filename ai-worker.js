@@ -2,7 +2,8 @@
  * ai-worker.js  --  the `ai-daily` Worker behind ai.stluker.com
  *
  * Front end. stl-dispatcher writes the content (aiIngest daily at 11:45 UTC,
- * aiPodcast + newsletter roundup Mon/Wed/Fri at 11:50 UTC); this Worker renders it from PODCAST_KV /
+ * aiPodcast Mon/Wed/Fri at 11:50 UTC) and triggers the newsletter every day
+ * (after aiPodcast on M/W/F, after aiIngest otherwise); this Worker renders it from PODCAST_KV /
  * POD_BUCKET at request time, same pattern as pod/space/earth. The one thing
  * it writes is the newsletter subscriber list (ai:news:*), and it mails each
  * edition when stl-dispatcher calls POST /newsletter/send.
@@ -17,11 +18,11 @@
  *   GET /audio/:id.mp3       episode MP3 from R2, Range-aware (podcast apps need 206)
  *   GET /transcript/:id.txt  plain-text script
  *   GET /newsletter          newsletter pitch + signup + sample issue
- *   GET /newsletter/preview  the latest roundup rendered as the email
+ *   GET /newsletter/preview  the next email, rendered as it will be sent
  *   POST /subscribe          email -> pending + confirmation mail (double opt-in)
  *   GET|POST /confirm        confirm page (GET) / activate subscription (POST)
  *   GET|POST /unsubscribe    confirm page (GET) / remove (POST, also RFC 8058 one-click)
- *   POST /newsletter/send    Bearer NEWSLETTER_SEND_TOKEN; mails the M/W/F roundup once
+ *   POST /newsletter/send    Bearer NEWSLETTER_SEND_TOKEN; mails the daily briefing once per day
  *
  * KV keys (all written by stl-dispatcher):
  *   ai:index                [{day, headline, count}] newest first
@@ -192,7 +193,7 @@ function signupForm() {
     </div>
     <label class="hp" aria-hidden="true">Leave blank <input type="text" name="website" tabindex="-1" autocomplete="off"></label>
     <p class="msg" role="status" aria-live="polite"></p>
-    <p class="fine">Free. One email every Monday, Wednesday and Friday. We send one message to confirm; unsubscribe in one click.</p>
+    <p class="fine">Free. One email every morning. We send one message to confirm; unsubscribe in one click.</p>
   </form>`;
 }
 
@@ -200,8 +201,8 @@ function signupCard({ wide = false } = {}) {
   return `<section class="signup${wide ? ' wide' : ''}" aria-label="Subscribe to the newsletter">
   ${wide ? '' : `<div>
     <p class="kicker">The morning briefing</p>
-    <h2 class="serif">Get the roundup in your inbox, Monday, Wednesday and Friday</h2>
-    <p>Every story since the last one, why it matters, and the source links. In your inbox around 6:50&nbsp;a.m. Central. <a href="/newsletter">See a sample</a>.</p>
+    <h2 class="serif">Get this edition in your inbox, every morning</h2>
+    <p>Every story, why it matters, and the source links. In your inbox by about 7&nbsp;a.m. Central. <a href="/newsletter">See a sample</a>.</p>
   </div>`}
   ${signupForm()}
 </section>`;
@@ -308,13 +309,15 @@ ${body}
 </body></html>`;
 }
 
-// CHANGED 2026-10-16: `ed` is now usually a Mon/Wed/Fri roundup from
-// buildRoundup() (stories merged across several editions, each tagged with
-// its `day`). `episode`, when given, adds a "Listen to today's episode" block.
+// `ed` comes from buildRoundup(): normally one day's edition (daily since
+// 2026-10-27); after a missed send, several editions merged, each story
+// tagged with its `day`. `episode`, when given (M/W/F), adds a "Listen to
+// today's episode" block.
 function renderIssue(ed, { issueNo = null, episode = null } = {}) {
   const webUrl = episode ? `${SITE.url}/episode/${ed.day}` : `${SITE.url}/day/${ed.day}`;
   const episodeUrl = `${SITE.url}/episode/${ed.day}`;
   const n = ed.stories.length;
+  const multiDay = (ed.days || []).length > 1;
   const top = ed.stories[0];
   const subject = `${top?.headline || 'Today in AI'}${n > 1 ? ` (+${n - 1} more)` : ''}`;
   const label = (t) => `<div style="font-family:${E.sans};font-size:11px;line-height:16px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:${E.accent}">${t}</div>`;
@@ -366,7 +369,7 @@ ${episode ? `<tr><td style="padding:22px 32px 0">
 </td></tr>` : ''}
 <tr><td style="padding:24px 32px 20px">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:${E.bg}"><tr><td style="padding:14px 18px">
-    ${label('In this roundup')}
+    ${label(multiDay ? 'In this roundup' : 'In this edition')}
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:6px">${index}</table>
   </td></tr></table>
 </td></tr>
@@ -393,7 +396,7 @@ ${stories}
     ed.lede,
     '',
     ...(episode ? ["LISTEN TO TODAY'S EPISODE", `${episode.title || SHOW.title}: ${episodeUrl}`, ''] : []),
-    'IN THIS ROUNDUP',
+    multiDay ? 'IN THIS ROUNDUP' : 'IN THIS EDITION',
     ...ed.stories.map((s, i) => `${String(i + 1).padStart(2, '0')}  ${s.headline}`),
     '',
     ...ed.stories.flatMap((s, i) => [
@@ -421,7 +424,7 @@ function renderConfirmEmail(confirmUrl) {
 <tr><td style="padding:28px 32px 0" align="center"><div style="font-family:${E.serif};font-size:30px;line-height:36px;font-weight:700;color:${E.ink}">${esc(SITE.name)}</div></td></tr>
 <tr><td style="padding:14px 32px 0"><div style="border-top:3px double ${E.ink};height:0;line-height:0">&nbsp;</div></td></tr>
 <tr><td style="padding:24px 32px 8px;font-family:${E.sans};font-size:16px;line-height:26px;color:${E.ink}">
-  <p style="margin:0 0 14px">One click and you're on the list for the ${esc(SITE.name)} morning briefing: every story, why it matters, and the source links, every Monday, Wednesday and Friday around 6:50 a.m. Central.</p>
+  <p style="margin:0 0 14px">One click and you're on the list for the ${esc(SITE.name)} morning briefing: every story, why it matters, and the source links, every morning by about 7 a.m. Central.</p>
   <p style="margin:22px 0" align="center"><a href="${confirmUrl}" style="display:inline-block;background:${E.accent};color:#ffffff;text-decoration:none;font-weight:700;border-radius:999px;padding:12px 26px">Confirm my subscription</a></p>
   <p style="margin:0;font-size:13px;line-height:20px;color:${E.muted}">The link works for three days. If you didn't ask for this, ignore this email and nothing will happen.</p>
 </td></tr>
@@ -552,7 +555,7 @@ async function handleConfirm(request, env, url) {
   const email = pending.email;
   await kv.put(await subKey(email), JSON.stringify({ email, since: new Date().toISOString() }), { metadata: { e: email } });
   await kv.delete(`ai:news:pending:${token}`);
-  return noticePage('You’re on the list', `<p>Your first briefing arrives the next Monday, Wednesday or Friday morning, around 6:50&nbsp;a.m. Central. Every email has a one-click unsubscribe link at the bottom.</p>
+  return noticePage('You’re on the list', `<p>Your first briefing arrives tomorrow morning, by about 7&nbsp;a.m. Central. Every email has a one-click unsubscribe link at the bottom.</p>
 <p><a class="btn" href="/">Read today&rsquo;s edition now</a></p>`);
 }
 
@@ -581,33 +584,30 @@ async function listSubscribers(kv) {
   return out.sort();
 }
 
-// ── Mon/Wed/Fri roundup (ADDED 2026-10-16) ─────────────────────────────────
-// Days: the episode's `covers` if ai:pod:episode:<day> exists; otherwise every
-// ai:index day after the most recent ai:news:sent:<d> (d < day), up to and
-// including <day>, capped at ROUNDUP_MAX_DAYS. Stories are merged, deduped by
-// first link URL (fallback: normalized headline), sorted by importance desc
-// then newest day, capped at ROUNDUP_MAX_STORIES.
+// ── What the next email covers (roundup ADDED 2026-10-16, daily 2026-10-27) ─
+// Days: every ai:index day after the most recent ai:news:sent:<d> (d < day),
+// up to and including <day>, capped at ROUNDUP_MAX_DAYS. Sent daily, that is
+// just <day>; after a missed send it catches up. The podcast episode's
+// `covers` is deliberately NOT used: those days were already mailed. The
+// episode (M/W/F) only adds the "listen" block. Stories are merged, deduped
+// by first link URL (fallback: normalized headline), sorted by importance
+// desc then newest day, capped at ROUNDUP_MAX_STORIES.
 const ROUNDUP_MAX_DAYS = 5;
 const ROUNDUP_MAX_STORIES = 12;
 
 async function buildRoundup(kv, day, index) {
   const episode = await readJson(kv, `ai:pod:episode:${day}`, null);
-  let days;
-  if (episode && Array.isArray(episode.covers) && episode.covers.length) {
-    days = episode.covers.filter((d) => DAY_RE.test(d) && d <= day);
-  } else {
-    let lastSent = null;
-    let cursor;
-    do {
-      const page = await kv.list({ prefix: 'ai:news:sent:', cursor });
-      for (const k of page.keys) {
-        const d = k.name.slice('ai:news:sent:'.length);
-        if (DAY_RE.test(d) && d < day && (!lastSent || d > lastSent)) lastSent = d;
-      }
-      cursor = page.list_complete ? null : page.cursor;
-    } while (cursor);
-    days = index.map((e) => e.day).filter((d) => d <= day && (!lastSent || d > lastSent));
-  }
+  let lastSent = null;
+  let cursor;
+  do {
+    const page = await kv.list({ prefix: 'ai:news:sent:', cursor });
+    for (const k of page.keys) {
+      const d = k.name.slice('ai:news:sent:'.length);
+      if (DAY_RE.test(d) && d < day && (!lastSent || d > lastSent)) lastSent = d;
+    }
+    cursor = page.list_complete ? null : page.cursor;
+  } while (cursor);
+  let days = index.map((e) => e.day).filter((d) => d <= day && (!lastSent || d > lastSent));
   days = [...new Set(days)].sort().slice(-ROUNDUP_MAX_DAYS);
   if (!days.includes(day) && index.some((e) => e.day === day)) days = [...days.slice(-(ROUNDUP_MAX_DAYS - 1)), day];
 
@@ -615,7 +615,8 @@ async function buildRoundup(kv, day, index) {
   if (!eds.length) return null;
 
   const normHeadline = (h) => String(h || '').toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim();
-  const all = eds.flatMap((ed) => ed.stories.map((s) => ({ ...s, day: ed.day })))
+  // Per-story date tags only make sense when the email spans several days.
+  const all = eds.flatMap((ed) => ed.stories.map((s) => (eds.length > 1 ? { ...s, day: ed.day } : { ...s })))
     .sort((a, b) => (Number(b.importance) || 0) - (Number(a.importance) || 0) || (a.day < b.day ? 1 : a.day > b.day ? -1 : 0));
   const seen = new Set();
   const stories = [];
@@ -628,7 +629,9 @@ async function buildRoundup(kv, day, index) {
   }
   const newest = eds.reduce((a, b) => (a.day > b.day ? a : b));
   return {
-    ed: { day, lede: episode?.newsletterLede || newest.lede, stories, days: eds.map((e) => e.day) },
+    // newsletterLede summarizes the episode's multi-day span; a one-day email
+    // uses that day's own lede.
+    ed: { day, lede: (eds.length > 1 && episode?.newsletterLede) || newest.lede, stories, days: eds.map((e) => e.day) },
     episode,
   };
 }
@@ -705,20 +708,20 @@ async function handleSend(request, env, url) {
 async function renderNewsletter(env) {
   const index = await readJson(env.PODCAST_KV, 'ai:index', []);
   const body = `
-<p class="kicker">Newsletter &middot; Monday, Wednesday, Friday</p>
+<p class="kicker">Newsletter &middot; Every morning</p>
 <h1 class="serif">The ${esc(SITE.name)} morning briefing</h1>
-<p class="lede">One email every Monday, Wednesday and Friday, around 6:50&nbsp;a.m. Central: what happened in AI since the last one, why it matters, and a link to every source. Written like a wire report, not a hype thread.</p>
+<p class="lede">One email every morning, by about 7&nbsp;a.m. Central: what happened in AI, why it matters, and a link to every source. Written like a wire report, not a hype thread.</p>
 ${signupCard({ wide: true })}
 <div class="perks">
   <div><h3>Reported, not hyped</h3><p>A short lead, then each story in plain language: what happened, and why it matters.</p></div>
   <div><h3>Every claim sourced</h3><p>Each story links to the original reporting so you can check it yourself.</p></div>
   <div><h3>Two-minute scan</h3><p>An index up top shows the whole edition at a glance. Read what you need, skip the rest.</p></div>
 </div>
-${index.length ? `<p class="kicker">Sample &middot; the latest roundup, as it arrives</p>
+${index.length ? `<p class="kicker">Sample &middot; the latest edition, as it arrives</p>
 <div class="sample"><iframe src="/newsletter/preview" title="Sample ${esc(SITE.name)} email" loading="lazy"></iframe></div>
 <p class="why" style="margin-top:.8rem"><a href="/newsletter/preview">Open the sample in its own tab &rarr;</a></p>` : ''}
 <p class="why" style="margin-top:2rem">Editions are assembled automatically from public AI news sources and written up by Claude, an AI model. Your address is used only to send this newsletter, and every email has a one-click unsubscribe.</p>`;
-  return html(page({ title: `Newsletter · ${SITE.name}`, description: 'The AI Daily morning briefing: every story, why it matters, and the sources, in your inbox every Monday, Wednesday and Friday.', active: 'newsletter', body }));
+  return html(page({ title: `Newsletter · ${SITE.name}`, description: 'The AI Daily morning briefing: every story, why it matters, and the sources, in your inbox every morning.', active: 'newsletter', body }));
 }
 
 async function renderPreview(env, url) {
